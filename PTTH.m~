@@ -1,0 +1,418 @@
+function [ptth,varargout] = PTTH(spikes,events,varargin);
+% PTTH.m
+%
+% Peri-Event-Time-Histograms or rasters.
+% Feed in spikes and events. Get an array of peri-event (touch, whisk cycle) spikes.
+% By default spikes will be ordered by event duration
+
+% For touch-aligned data, you can specify whether you want to order touches
+% by 'duration', touch order ('order'), or both ('durorder').
+
+% For other kinds of alignment, you will also need to provide additional
+% data in varargin.
+% e.g. for aligning by peak kappa, provide the kappa array along with the events array.
+% The code will then return the PTTH spike raster, and aligned kappa.
+
+% Add switch for touch/whisks? Or have single method for all event types,
+% then switch for alternating (e.g. on/off) vs uniform ?
+
+% TO DO. GET ALL VARIANTS TO ALLOW KAPPA INPUT AND OUTPUT...
+
+if isempty(varargin);
+    varargin = 'duration';
+end
+
+if any(strcmp(varargin{1},{'duration';'order';'durorder'}))
+    touches = find(diff(events)>=1);
+    detach = find(diff(events)<=-1);
+    
+    if numel(touches)>=1
+    
+    % Add shift to touches as diff starts at 2
+    touches = 1 + touches;
+    detach = detach + 1;
+    
+    % pre-allocate for speed
+    ptth  = zeros(numel(touches),300);
+    
+    order = zeros(1,numel(touches)); % Need to work out how to do this
+    % elegantly
+    
+    duration = detach-touches;
+    
+    % Do first touch first as it's easy
+    ptth(1,:) = spikes(touches(1)-99:touches(1)+200);
+    order(1) = 1;
+    
+    %% Switch for order preference
+    
+    if strcmp(varargin{1},'duration') % Order by duration
+        
+        % Assign spikes to ptth and work out touch duration
+        for i = 2:numel(touches)
+            ptth(i,:) = spikes(touches(i)-99:touches(i)+200);
+            duration(i) = detach(i) - touches(i);
+        end
+        
+        [duration,dur_order] = sort(duration);
+        
+        ptth = ptth(dur_order,:);
+        
+        % Add switch for different ordering criterion
+        varargout = {duration};
+        
+    elseif strcmp(varargin{1},'order') % Order by touch order
+        
+        % Assign spikes to ptth and work out touch order
+        for i = 2:numel(touches)
+            
+            ptth(i,:) = spikes(touches(i)-99:touches(i)+200);
+            
+            
+            last_order = order(i-1);
+            last_tr_time = mod(touches(i-1),5000); % Time in trial when previous touch occured
+            rem_time = 5000 - last_tr_time; % Remaining time in previous touch's trial
+            
+            touch_diff = touches(i) - touches(i-1);
+            if touch_diff <= rem_time
+                order(i) = last_order + 1;
+                
+            else
+                order(i) = 1;
+            end
+            
+        end
+        
+        [order,order_order] = sort(order);
+        
+        ptth = ptth(order_order,:);
+        
+        % Add switch for different ordering criterion
+        varargout = {order};
+        
+        
+    elseif strcmp(varargin{1},'durorder'); % Order by both duration and touch order
+        
+        % Assign spikes to ptth and work out touch order
+        for i = 2:numel(touches)
+            
+            ptth(i,:) = spikes(touches(i)-99:touches(i)+200);
+            
+            
+            last_order = order(i-1);
+            last_tr_time = mod(touches(i-1),5000); % Time in trial when previous touch occured
+            rem_time = 5000 - last_tr_time; % Remaining time in previous touch's trial
+            
+            touch_diff = touches(i) - touches(i-1);
+            if touch_diff <= rem_time
+                order(i) = last_order + 1;
+                
+            else
+                order(i) = 1;
+            end
+            
+        end
+        
+        [order,order_order] = sort(order);
+        
+        ptth = ptth(order_order,:);
+        
+        % Compute duration of each touch
+        duration = duration(order_order); 
+        
+        % Now sort all touches of a given order by duration
+        
+        % Assign spikes to ptth and work out touch duration
+        for i = 1:numel(unique(order));
+            touch_index = find(order == i);
+            [sort_touch,sort_touch_index] = sort(duration(touch_index));
+            
+            duration(touch_index) = sort_touch;
+            ptth(touch_index,:) = ptth(touch_index(sort_touch_index),:);
+            
+        end
+        
+        
+        
+        % Add switch for different ordering criterion
+        varargout = {duration,order};
+        
+    end
+    
+end
+% Align by max kappa
+if strcmp(varargin{1},'maxkappa')
+    kappa = varargin{2};
+    
+    touches = find(diff(events)>=1);
+    detach = find(diff(events)<=-1);
+    
+    % Add shift to touches as diff starts at 2
+    touches = 1 + touches;
+    detach = detach + 1;
+    
+    % pre-allocate for speed
+    ptth  = zeros(numel(touches),300);
+    
+    order = zeros(1,numel(touches)); % Need to work out how to do this
+    % elegantly
+    
+    duration = detach-touches;
+    
+    % Do first touch first as it's easy
+    ptth(1,:) = spikes(touches(1)-99:touches(1)+200);
+    order(1) = 1;
+
+    
+    
+    % Assign spikes to ptth and work out touch duration
+    for i = 2:numel(touches)
+        ptth(i,:) = spikes(touches(i)-99:touches(i)+200);
+        duration(i) = detach(i) - touches(i);
+        pt_kappa(i,:) = kappa(touches(i)-99:touches(i)+200);
+        max_kappa(i) = max(abs(pt_kappa(i,:)));
+    end
+    
+    [mx_kappa,mx_k_order] = sort(max_kappa);
+    
+    ptth = ptth(mx_k_order,:);
+    pt_kappa = pt_kappa(mx_k_order,:);
+    
+    
+    % Output duration, peri-touch kappa, and max kappa
+    varargout = {duration,pt_kappa,mx_kappa};
+    
+    
+end
+% Align by duration, but return kappa too
+if strcmp(varargin{1},'kappaorder')
+    kappa = varargin{2};
+    
+    touches = find(diff(events)>=1);
+    detach = find(diff(events)<=-1);
+    
+    % Add shift to touches as diff starts at 2
+    touches = 1 + touches;
+    detach = detach + 1;
+    
+    % pre-allocate for speed
+    ptth  = zeros(numel(touches),300);
+    
+    order = [];%zeros(1,numel(touches)); % Need to work out how to do this
+    % elegantly
+    
+    duration = detach-touches;
+    
+    % Do first touch first as it's easy
+    ptth(1,:) = spikes(touches(1)-99:touches(1)+200);
+    order(1) = 1;
+
+    touch_diff_dist(1) = touches(1);
+    % Assign spikes to ptth and work out touch order
+    for i = 2:numel(touches)
+        if numel(kappa)>= touches(i)+200
+        ptth(i,:) = spikes(touches(i)-99:touches(i)+200);
+        pt_kappa(i,:) = kappa(touches(i)-99:touches(i)+200);
+        mx_kappa(i) = mean((pt_kappa(i,:)));
+        
+        last_order = order(i-1);
+        last_tr_time = mod(touches(i-1),5000); % Time in trial when previous touch occured
+        rem_time = 5000 - last_tr_time; % Remaining time in previous touch's trial
+        
+        touch_diff = touches(i) - touches(i-1);
+        prev_touch = touches(i) - detach(i-1);
+        
+        if touch_diff <= rem_time
+            order(i) = last_order + 1;
+            touch_diff_dist(i) = touch_diff;
+            prev_touch_dist(i) = 100 - prev_touch;
+            
+        else
+            order(i) = 1;
+            touch_diff_dist(i) = mod(touches(i),5000);
+            prev_touch_dist(i) = 1;
+        end
+        end
+        
+    end
+    
+    % Compute subequent touch times
+    next_touch = zeros(1,numel(order));
+    next_touch(1:end-1) = touch_diff_dist(2:end);
+    
+    [order,order_order] = sort(order);
+    
+    ptth = ptth(order_order,:);
+    touch_diff_dist = touch_diff_dist(order_order);
+
+    next_touch = next_touch(order_order);
+    
+    % Previous detach time (to compute pre-touch ITI)
+    prev_touch_dist = prev_touch_dist(order_order);
+    
+    % Compute duration of each touch
+    duration = detach - touches;
+    duration = duration(order_order);
+    mx_kappa = mx_kappa(order_order);
+    pt_kappa = pt_kappa(order_order,:);
+    
+    % TO DO. SEPARATE OUT THE THREE ORDERING OPTIONS BELOW
+    % Now sort all touches of a given order by max kappa
+    
+    % Assign spikes to ptth aligned to kappa feature
+%     for i = 1:numel(unique(order));
+%         touch_index = find(order == i);
+%         [sort_touch,sort_touch_index] = sort(mx_kappa(touch_index));
+%         
+%         duration(touch_index) = duration(touch_index(sort_touch_index),:);
+%         mx_kappa(touch_index) = sort_touch;
+%         touch_diff_dist(touch_index) = touch_diff_dist(touch_index(sort_touch_index));
+%         ptth(touch_index,:) = ptth(touch_index(sort_touch_index),:);
+%         pt_kappa(touch_index,:) = pt_kappa(touch_index(sort_touch_index),:);
+%     end
+%     
+
+%         % Assign spikes to ptth aligned to touch_diff_dist
+%     for i = 1:numel(unique(order));
+%         touch_index = find(order == i);
+%         [sort_touch,sort_touch_index] = sort(touch_diff_dist(touch_index));
+%         
+%         touch_diff_dist(touch_index) = sort_touch;
+%         duration(touch_index) = duration(touch_index(sort_touch_index),:);
+%         mx_kappa(touch_index) = mx_kappa(touch_index(sort_touch_index));
+%         ptth(touch_index,:) = ptth(touch_index(sort_touch_index),:);
+%         pt_kappa(touch_index,:) = pt_kappa(touch_index(sort_touch_index),:);
+%     end
+    
+            % Assign spikes to ptth aligned to touch duration
+    for i = 1:numel(unique(order));
+        touch_index = find(order == i);
+        [sort_touch,sort_touch_index] = sort(duration(touch_index));
+        
+        duration(touch_index) = sort_touch;
+        touch_diff_dist(touch_index) = touch_diff_dist(touch_index(sort_touch_index));
+        prev_touch_dist(touch_index) = prev_touch_dist(touch_index(sort_touch_index));
+        
+        mx_kappa(touch_index) = mx_kappa(touch_index(sort_touch_index));
+        ptth(touch_index,:) = ptth(touch_index(sort_touch_index),:);
+        pt_kappa(touch_index,:) = pt_kappa(touch_index(sort_touch_index),:);
+        next_touch(touch_index) = next_touch(touch_index(sort_touch_index));
+    end
+    
+    % Output duration, peri-touch kappa, and max kappa
+    varargout = {duration,pt_kappa,mx_kappa,touch_diff_dist,order,next_touch,prev_touch_dist};
+
+
+end
+% Align by duration, but return kappa too
+if strcmp(varargin{1},'touchonly')
+    kappa = varargin{2};
+    
+    touches = find(diff(events)>=1);
+    detach = find(diff(events)<=-1);
+    
+    % Add shift to touches as diff starts at 2
+    touches = 1 + touches;
+    detach = detach + 1;
+    
+    % pre-allocate for speed
+    ptth  = zeros(numel(touches),300);
+    
+    order = zeros(1,numel(touches)); % Need to work out how to do this
+    % elegantly
+    
+    duration = detach-touches;
+    
+    % Do first touch first as it's easy
+    ptth(1,:) = spikes(touches(1)-99:touches(1)+200);
+    order(1) = 1;
+
+    touch_diff_dist(1) = touches(1);
+    % Assign spikes to ptth and work out touch order
+    for i = 2:numel(touches)
+        
+        ptth(i,:) = spikes(touches(i)-99:touches(i)+200);
+        pt_kappa(i,:) = kappa(touches(i)-99:touches(i)+200);
+        mx_kappa(i) = mean((pt_kappa(i,:)));
+        
+        last_order = order(i-1);
+        last_tr_time = mod(touches(i-1),5000); % Time in trial when previous touch occured
+        rem_time = 5000 - last_tr_time; % Remaining time in previous touch's trial
+        
+        touch_diff = touches(i) - touches(i-1);
+
+        if touch_diff <= rem_time
+            order(i) = last_order + 1;
+            touch_diff_dist(i) = touch_diff;
+            
+        else
+            order(i) = 1;
+            touch_diff_dist(i) = mod(touches(i),5000);
+        end
+        
+    end
+    
+    % Compute duration of each touch
+    duration = detach - touches;
+    
+    % Set ptth to zero outside touch
+    
+    
+    
+    
+    
+    
+    [order,order_order] = sort(order);
+    
+    ptth = ptth(order_order,:);
+    touch_diff_dist = touch_diff_dist(order_order);
+    
+
+    duration = duration(order_order);
+    mx_kappa = mx_kappa(order_order);
+    pt_kappa = pt_kappa(order_order,:);
+    
+    % Now sort all touches of a given order by max kappa
+    
+    % Assign spikes to ptth aligned to kappa feature
+%     for i = 1:numel(unique(order));
+%         touch_index = find(order == i);
+%         [sort_touch,sort_touch_index] = sort(mx_kappa(touch_index));
+%         
+%         duration(touch_index) = duration(touch_index(sort_touch_index),:);
+%         mx_kappa(touch_index) = sort_touch;
+%         touch_diff_dist(touch_index) = touch_diff_dist(touch_index(sort_touch_index));
+%         ptth(touch_index,:) = ptth(touch_index(sort_touch_index),:);
+%         pt_kappa(touch_index,:) = pt_kappa(touch_index(sort_touch_index),:);
+%     end
+%     
+
+%         % Assign spikes to ptth aligned to touch_diff_dist
+%     for i = 1:numel(unique(order));
+%         touch_index = find(order == i);
+%         [sort_touch,sort_touch_index] = sort(touch_diff_dist(touch_index));
+%         
+%         touch_diff_dist(touch_index) = sort_touch;
+%         duration(touch_index) = duration(touch_index(sort_touch_index),:);
+%         mx_kappa(touch_index) = mx_kappa(touch_index(sort_touch_index));
+%         ptth(touch_index,:) = ptth(touch_index(sort_touch_index),:);
+%         pt_kappa(touch_index,:) = pt_kappa(touch_index(sort_touch_index),:);
+%     end
+    
+            % Assign spikes to ptth aligned to touch duration
+    for i = 1:numel(unique(order));
+        touch_index = find(order == i);
+        [sort_touch,sort_touch_index] = sort(duration(touch_index));
+        
+        duration(touch_index) = sort_touch;
+        touch_diff_dist(touch_index) = touch_diff_dist(touch_index(sort_touch_index));
+        mx_kappa(touch_index) = mx_kappa(touch_index(sort_touch_index));
+        ptth(touch_index,:) = ptth(touch_index(sort_touch_index),:);
+        pt_kappa(touch_index,:) = pt_kappa(touch_index(sort_touch_index),:);
+    end
+    
+    % Output duration, peri-touch kappa, and max kappa
+    varargout = {duration,pt_kappa,mx_kappa,touch_diff_dist};
+        
+
+end
